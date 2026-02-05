@@ -1,0 +1,69 @@
+name: Extract ZIP and commit contents (root ZIP)
+
+on:
+  workflow_dispatch:
+    inputs:
+      zip_path:
+        description: 'Path to ZIP in the repo (relative)'
+        required: true
+        default: 'PROMPT_DEV_OS_v14_2_NODE_READY_ULTRA_HYBRID (1).zip'
+      dest_dir:
+        description: 'Destination directory'
+        required: true
+        default: 'upload'
+      branch_name:
+        description: 'Branch to create for the extraction'
+        required: true
+        default: 'extract-zip-2026-02-05'
+
+jobs:
+  extract-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure zip exists
+        run: |
+          if [ ! -f "${{ github.event.inputs.zip_path }}" ]; then
+            echo "::error file=extract-zip::ZIP not found at ${{ github.event.inputs.zip_path }}"
+            exit 1
+          fi
+
+      - name: Create branch from main
+        run: |
+          BR="${{ github.event.inputs.branch_name }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${BR}"
+
+      - name: Extract ZIP contents
+        run: |
+          mkdir -p "${{ github.event.inputs.dest_dir }}"
+          # Handle filenames with spaces reliably
+          unzip -o "${{ github.event.inputs.zip_path }}" -d "${{ github.event.inputs.dest_dir }}/"
+          echo "Extraction done."
+
+      - name: Detect large files (>100MB)
+        run: |
+          LARGE=$(find "${{ github.event.inputs.dest_dir }}" -type f -size +100M -print || true)
+          if [ -n "$LARGE" ]; then
+            echo "Large files detected:"
+            echo "$LARGE"
+            echo "::warning file=extract-zip::Large files detected. Consider Git LFS or removing them before push."
+          else
+            echo "No large files detected."
+          fi
+
+      - name: Commit changes
+        run: |
+          git add "${{ github.event.inputs.dest_dir }}" || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Extract '${{ github.event.inputs.zip_path }}' into ${{ github.event.inputs.dest_dir }}/"
+            git push -u origin "${{ github.event.inputs.branch_name }}"
+            echo "Pushed branch ${{ github.event.inputs.branch_name }}"
+          fi
